@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { enforceLimits, verifyClient, saveArtifact, isLocalRequest, isRateLimitError, isDailyTokenQuotaError } from '@/lib/security';
-import { buildChatMessages, streamWithServerContinuation, customProviderConfigured } from '@/lib/llm';
+import { buildChatMessages, streamWithServerContinuation, createChatStream, customProviderConfigured } from '@/lib/llm';
 import { planGeneration, executePlan } from '@/lib/orchestrator';
 
 export const maxDuration = 60;
@@ -47,7 +47,14 @@ export async function POST(request) {
         }
 
         if (plan.type === 'text') {
-            const { readable } = await streamWithServerContinuation(buildChatMessages(messages, { plain: customProviderConfigured() }), { temperature: 0.7, maxTokens: 1024 });
+            const chatMessages = buildChatMessages(messages, { plain: customProviderConfigured() });
+            let firstStream;
+            try {
+                firstStream = await createChatStream(chatMessages, { temperature: 0.7, maxTokens: 1024 });
+            } catch (e) {
+                return errorResponse(e) || new NextResponse(`All AI providers are currently unavailable or rate-limited (${String(e?.message || 'error').slice(0, 160)}). Add another free key (GROQ_API_KEY_2) or configure CUSTOM_LLM_URL / CUSTOM_LLM_KEY / CUSTOM_LLM_MODEL in project settings.`, { status: 429 });
+            }
+            const { readable } = await streamWithServerContinuation(chatMessages, { temperature: 0.7, maxTokens: 1024 }, firstStream);
             const headers = {
                 "Content-Type": "text/plain; charset=utf-8",
                 "X-Content-Type-Options": "nosniff",

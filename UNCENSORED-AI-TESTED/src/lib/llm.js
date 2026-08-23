@@ -140,7 +140,7 @@ export const CONTINUATION_SENTINEL = "\u2402CONTINUE\u2402";
 
 const MAX_SERVER_CONTINUATIONS = 6;
 
-export async function streamWithServerContinuation(messages, { temperature = 0.7, maxTokens = 1024 } = {}) {
+export async function streamWithServerContinuation(messages, { temperature = 0.7, maxTokens = 1024 } = {}, precreatedFirstStream = null) {
     const encoder = new TextEncoder();
     const readable = new ReadableStream({
         async start(controller) {
@@ -148,15 +148,23 @@ export async function streamWithServerContinuation(messages, { temperature = 0.7
                 let conversation = messages;
                 let total = '';
                 let nudged = false;
+                let usedPrecreated = false;
                 for (let round = 0; round <= MAX_SERVER_CONTINUATIONS; round++) {
-                    const { result: apiStream } = await llmCreate({
-                        model: "openai/gpt-oss-120b",
-                        messages: conversation,
-                        temperature,
-                        top_p: 1,
-                        max_tokens: maxTokens,
-                        stream: true,
-                    });
+                    let apiStream;
+                    if (precreatedFirstStream && !usedPrecreated) {
+                        apiStream = precreatedFirstStream;
+                        usedPrecreated = true;
+                    } else {
+                        const created = await llmCreate({
+                            model: "openai/gpt-oss-120b",
+                            messages: conversation,
+                            temperature,
+                            top_p: 1,
+                            max_tokens: maxTokens,
+                            stream: true,
+                        });
+                        apiStream = created.result;
+                    }
                     let finishReason = null;
                     let roundText = '';
                     for await (const chunk of apiStream) {
@@ -190,12 +198,30 @@ export async function streamWithServerContinuation(messages, { temperature = 0.7
                         },
                     ];
                 }
+            } catch (streamErr) {
+                try {
+                    controller.enqueue(encoder.encode(`
+
+[AI provider error: ${streamErr && streamErr.message ? String(streamErr.message).slice(0, 220) : "unknown"}]`));
+                } catch { }
             } finally {
                 controller.close();
             }
         }
     });
     return { readable };
+}
+
+export async function createChatStream(messages, opts = {}) {
+    const { result } = await llmCreate({
+        model: "openai/gpt-oss-120b",
+        messages,
+        temperature: opts.temperature ?? 0.7,
+        top_p: 1,
+        max_tokens: opts.maxTokens ?? 1024,
+        stream: true,
+    });
+    return result;
 }
 
 export async function streamChatCompletion(messages, { temperature = 0.7, maxTokens = 1024 } = {}) {
