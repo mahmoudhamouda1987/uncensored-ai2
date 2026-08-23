@@ -196,7 +196,6 @@ export async function streamWithServerContinuation(messages, { temperature = 0.7
         }
     });
     return { readable };
-};
 }
 
 export async function streamChatCompletion(messages, { temperature = 0.7, maxTokens = 1024 } = {}) {
