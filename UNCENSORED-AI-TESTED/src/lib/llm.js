@@ -140,13 +140,14 @@ export const CONTINUATION_SENTINEL = "\u2402CONTINUE\u2402";
 
 const MAX_SERVER_CONTINUATIONS = 6;
 
-export async function streamWithServerContinuation(messages, { temperature = 0.7, maxTokens = 4096 } = {}) {
+export async function streamWithServerContinuation(messages, { temperature = 0.7, maxTokens = 1024 } = {}) {
     const encoder = new TextEncoder();
     const readable = new ReadableStream({
         async start(controller) {
             try {
                 let conversation = messages;
                 let total = '';
+                let nudged = false;
                 for (let round = 0; round <= MAX_SERVER_CONTINUATIONS; round++) {
                     const { result: apiStream } = await llmCreate({
                         model: "openai/gpt-oss-120b",
@@ -160,13 +161,25 @@ export async function streamWithServerContinuation(messages, { temperature = 0.7
                     let roundText = '';
                     for await (const chunk of apiStream) {
                         const choice = chunk.choices[0];
-                        if (choice?.delta?.content) {
-                            roundText += choice.delta.content;
-                            controller.enqueue(encoder.encode(choice.delta.content));
+                        const token = choice?.delta?.content || "";
+                        if (token) {
+                            roundText += token;
+                            controller.enqueue(encoder.encode(token));
                         }
                         if (choice?.finish_reason) finishReason = choice.finish_reason;
                     }
                     total += roundText;
+
+                    if (!total && !roundText && finishReason === 'stop' && !nudged) {
+                        nudged = true;
+                        conversation = [
+                            ...conversation,
+                            { role: 'assistant', content: '' },
+                            { role: 'user', content: 'Output your final answer now, starting immediately with the actual response text.' },
+                        ];
+                        continue;
+                    }
+
                     if (finishReason !== 'length' || round === MAX_SERVER_CONTINUATIONS) break;
                     conversation = [
                         ...conversation,
@@ -183,6 +196,7 @@ export async function streamWithServerContinuation(messages, { temperature = 0.7
         }
     });
     return { readable };
+};
 }
 
 export async function streamChatCompletion(messages, { temperature = 0.7, maxTokens = 1024 } = {}) {

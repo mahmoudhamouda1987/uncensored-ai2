@@ -47,7 +47,7 @@ export async function POST(request) {
         }
 
         if (plan.type === 'text') {
-            const { readable } = await streamWithServerContinuation(buildChatMessages(messages, { plain: customProviderConfigured() }), { temperature: 0.7, maxTokens: 4096 });
+            const { readable } = await streamWithServerContinuation(buildChatMessages(messages, { plain: customProviderConfigured() }), { temperature: 0.7, maxTokens: 1024 });
             const headers = {
                 "Content-Type": "text/plain; charset=utf-8",
                 "X-Content-Type-Options": "nosniff",
