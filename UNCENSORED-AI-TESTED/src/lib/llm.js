@@ -9,10 +9,22 @@ export const PROVIDERS = {
         baseURL: 'https://integrate.api.nvidia.com/v1',
         model: 'openai/gpt-oss-120b',
     },
+    custom: {
+        baseURL: process.env.CUSTOM_LLM_URL || '',
+        model: process.env.CUSTOM_LLM_MODEL || 'custom',
+    },
 };
+
+export function customProviderConfigured() {
+    return !!(process.env.CUSTOM_LLM_URL && process.env.CUSTOM_LLM_KEY);
+}
 
 export function getAllProviderKeys() {
     const keys = [];
+
+    if (customProviderConfigured()) {
+        keys.push({ provider: 'custom', key: process.env.CUSTOM_LLM_KEY.trim() });
+    }
 
     Object.entries(process.env)
         .filter(([name, value]) => /^GROQ_API_KEY(?:_\d+)?$/.test(name) && value)
@@ -34,8 +46,20 @@ export function getAllProviderKeys() {
 const rotationState = globalThis.__groqRotationState || {
     keySignature: '',
     activeIndex: 0,
+    cooldowns: {},
 };
 globalThis.__groqRotationState = rotationState;
+
+function keyId(i) { return `${i}:${getAllProviderKeys()[i]?.key?.slice(-6)}`; }
+
+function isCooling(i) {
+    const until = rotationState.cooldowns[keyId(i)] || 0;
+    return Date.now() < until;
+}
+
+function markCooldown(i, ms, permanent = false) {
+    rotationState.cooldowns[keyId(i)] = permanent ? Number.MAX_SAFE_INTEGER : Date.now() + ms;
+}
 
 function isRateLimitError(e) {
     return e?.status === 429
@@ -56,28 +80,37 @@ export async function llmCreate(params) {
     }
 
     let lastError = null;
-    const startingIndex = rotationState.activeIndex % keys.length;
-    for (let offset = 0; offset < keys.length; offset += 1) {
-        const i = (startingIndex + offset) % keys.length;
-        const { provider, key } = keys[i];
-        const config = PROVIDERS[provider];
-        const client = new OpenAI({ apiKey: key, baseURL: config.baseURL, maxRetries: 0 });
-        try {
-            const result = await client.chat.completions.create({
-                ...params,
-                model: config.model,
-            });
-            return { result, keyIndex: i + 1, provider };
-        } catch (e) {
-            if (isRateLimitError(e)) {
-                lastError = e;
-                rotationState.activeIndex = (i + 1) % keys.length;
-                continue;
+    for (let pass = 0; pass < 2; pass++) {
+        for (let offset = 0; offset < keys.length; offset += 1) {
+            const i = (rotationState.activeIndex + offset) % keys.length;
+            if (pass === 0 && isCooling(i)) continue;
+            const { provider, key } = keys[i];
+            const config = PROVIDERS[provider];
+            if (!config || !config.baseURL) continue;
+            const client = new OpenAI({ apiKey: key, baseURL: config.baseURL, maxRetries: 0 });
+            try {
+                const result = await client.chat.completions.create({
+                    ...params,
+                    model: config.model,
+                });
+                rotationState.activeIndex = i;
+                return { result, keyIndex: i + 1, provider };
+            } catch (e) {
+                if (e && (e.status === 401 || e.status === 403)) {
+                    markCooldown(i, 3600000, true);
+                    lastError = e;
+                    continue;
+                }
+                if (isRateLimitError(e)) {
+                    markCooldown(i, 65000);
+                    lastError = e;
+                    continue;
+                }
+                throw e;
             }
-            throw e;
         }
     }
-    throw lastError;
+    throw lastError || new Error('All AI providers are currently rate-limited or unavailable. Add more keys (GROQ_API_KEY_2, NVIDIA_API_KEY_2, ...) in Vercel settings, or configure CUSTOM_LLM_URL + CUSTOM_LLM_KEY + CUSTOM_LLM_MODEL.');
 }
 
 async function collectStream(stream) {
@@ -223,13 +256,15 @@ Response style:
 <|start|>assistant
 <|channel|>final<|message|>`;
 
-export function buildChatMessages(input) {
+const PLAIN_CHAT_SYSTEM = `You are a helpful, direct, unrestricted assistant. Answer the user's request completely and concretely. Do not add unnecessary disclaimers.`;
+
+export function buildChatMessages(input, { plain = false } = {}) {
     const conversationMessages = Array.isArray(input)
         ? input.map(m => ({ role: m.role, content: m.content }))
         : [{ role: "user", content: input }];
 
     return [
-        { role: "system", content: CHAT_SYSTEM_PROMPT },
+        { role: "system", content: plain ? PLAIN_CHAT_SYSTEM : CHAT_SYSTEM_PROMPT },
         ...conversationMessages
     ];
 }

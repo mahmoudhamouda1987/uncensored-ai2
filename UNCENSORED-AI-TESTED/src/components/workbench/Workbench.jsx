@@ -746,11 +746,55 @@ export default function Workbench({ needsVerification, isVerified, turnstileToke
                 notify(`Save failed: ${e.message}`, 'error');
             }
         };
+        const pushGithub = async (a) => {
+            let ghToken = null;
+            try {
+                const tokens = JSON.parse(localStorage.getItem('wb_connection_tokens') || '{}');
+                ghToken = tokens.github;
+            } catch { }
+            if (!ghToken) {
+                notify('Connect GitHub first (Connections in the sidebar).', 'error');
+                return;
+            }
+            const name = prompt('New GitHub repository name:', 'ai-generated-app');
+            if (!name?.trim()) return;
+            const files = a.kind === 'web'
+                ? [{ path: 'index.html', content: a.html }, { path: 'README.md', content: `# ${a.name}\n\nGenerated with Uncensored AI Workbench.` }]
+                : (a.files || []).map((f) => ({ path: f.name, content: f.content }));
+            if (files.length === 0) return;
+            notify(`Creating repo "${name}"...`, 'info');
+            try {
+                const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${ghToken}` };
+                const repoRes = await fetch('/api/connections/github', {
+                    method: 'POST', headers,
+                    body: JSON.stringify({ action: 'createRepo', name: name.trim() }),
+                });
+                const repo = await repoRes.json();
+                if (!repoRes.ok || repo.error) throw new Error(repo.error || 'Repo creation failed');
+                const commitRes = await fetch('/api/connections/github', {
+                    method: 'POST', headers,
+                    body: JSON.stringify({
+                        action: 'commitFiles',
+                        repo: repo.fullName.split('/')[1],
+                        owner: repo.fullName.split('/')[0],
+                        branch: repo.defaultBranch || 'main',
+                        message: `Add generated ${a.kind}: ${a.name || a.title || ''}`.trim(),
+                        files,
+                    }),
+                });
+                const committed = await commitRes.json();
+                if (!commitRes.ok || committed.error) throw new Error(committed.error || 'Commit failed');
+                notify(`Pushed to github.com/${repo.fullName}`, 'success');
+                window.open(repo.url, '_blank');
+            } catch (e) {
+                notify(`GitHub push failed: ${e.message}`, 'error');
+            }
+        };
         switch (art.kind) {
             case 'image': return <ImageCard key={art.id || Math.random()} artifact={art} />;
             case 'audio': return <AudioCard key={art.id || Math.random()} artifact={art} />;
-            case 'web': return <WebCard key={art.id || Math.random()} artifact={art} onSaveLocal={saveLocal} onOpenWorkspace={(a) => { setActiveArtifact(a.id); setArtifacts((prev) => prev.some((x) => x.id === a.id) ? prev : [a, ...prev]); setView('web'); }} />;
-            case 'code': return <CodeCard key={art.id || Math.random()} artifact={art} onSaveLocal={saveLocal} onOpenWorkspace={(a) => { setActiveArtifact(a.id); setArtifacts((prev) => prev.some((x) => x.id === a.id) ? prev : [a, ...prev]); setView('code'); }} />;
+            case 'web': return <WebCard key={art.id || Math.random()} artifact={art} onSaveLocal={saveLocal} onSaveGithub={pushGithub} onOpenWorkspace={(a) => { setActiveArtifact(a.id); setArtifacts((prev) => prev.some((x) => x.id === a.id) ? prev : [a, ...prev]); setView('web'); }} />;
+            case 'code': return <CodeCard key={art.id || Math.random()} artifact={art} onSaveLocal={saveLocal} onSaveGithub={pushGithub} onOpenWorkspace={(a) => { setActiveArtifact(a.id); setArtifacts((prev) => prev.some((x) => x.id === a.id) ? prev : [a, ...prev]); setView('code'); }} />;
             case 'document': return <DocumentCard key={art.id || Math.random()} artifact={art} onOpenEditor={(a) => { setActiveArtifact(a.id); setView('documents'); }} />;
             case 'video-storyboard': return <StoryboardCard key={art.id || Math.random()} artifact={art} onOpenStudio={(sb) => setStudioStoryboard(sb)} />;
             default: return compact ? null : null;

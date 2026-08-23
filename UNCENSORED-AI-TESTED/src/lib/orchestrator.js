@@ -141,23 +141,65 @@ function extractJson(text) {
     }
 }
 
+const HEURISTIC_VERB = /^\s*(?:please\s+)?(make|create|generate|produce|build|design|draw|write|turn|animate|render|give me|i want|i need)\b/i;
+
+function classifyHeuristic(text) {
+    const t = String(text || '');
+    if (!HEURISTIC_VERB.test(t)) return null;
+    if (/\b(image|photo|picture|logo|illustration|poster|thumbnail|wallpaper|artwork|icon set|drawing|portrait of|render of)\b/i.test(t)) return 'image';
+    if (/\b(narrat|voice.?over|text.to.speech|read (this|it|the)? ?(aloud|out loud)|spoken version|audio version|podcast)\b/i.test(t)) return 'audio';
+    if (/\b(video|animation|storyboard|reel|short clip|promo video)\b/i.test(t)) return 'video';
+    if (/\b(website|web app|webapp|landing page|dashboard|calculator|browser game|interactive (page|app|site)|html (page|app))\b/i.test(t)) return 'web';
+    if (/\b(document|curriculum|course|textbook|handbook|workbook|guide)\b/i.test(t) && /(\d+\s*(sections?|lessons?|chapters?|parts?|modules?)|complete|full|full-length)/i.test(t)) return 'document';
+    if (/(\d+\s*(lessons?|sections?|chapters?))/i.test(t) && /\b(lesson|section|chapter|part|module)s?\b/i.test(t)) return 'document';
+    if (/\b(script|program|source code|cli|api endpoint|python|javascript|react component|node module|library|refactor)\b/i.test(t)) return 'code';
+    return null;
+}
+
+function directPlan(type, prompt) {
+    const defaults = {
+        image: { aspect: '1:1', style: 'high detail' },
+        audio: { voice: 'nova' },
+        video: { sceneCount: 4, secondsPerScene: 4, aspect: '16:9', voice: 'nova' },
+        web: { style: 'modern dark theme' },
+        code: {},
+        document: { sectionCount: undefined },
+    };
+    return { type, prompt, assistantText: '', params: defaults[type] || {} };
+}
+
 export async function planGeneration(messages, forcedMode) {
-    const recent = messages.slice(-8).map(m => `${m.role}: ${String(m.content).slice(0, 500)}`).join('\n');
-    const { text } = await complete({
-        system: PLANNER_SYSTEM,
-        user: `Conversation so far:\n${recent}\n\n${forcedMode && forcedMode !== 'auto' ? `The user explicitly selected the "${forcedMode}" mode. Use it as the type unless clearly nonsensical.` : 'Detect the type automatically.'}\n\nLatest request: ${messages[messages.length - 1]?.content || ''}`,
-        temperature: 0.3,
-        maxTokens: 700,
-    });
-    const plan = extractJson(text);
-    if (!plan || !plan.type) {
-        return { type: forcedMode && forcedMode !== 'text' ? forcedMode : 'text', prompt: messages[messages.length - 1]?.content || '', assistantText: '', params: {} };
+    const lastUser = messages[messages.length - 1]?.content || '';
+
+    if (forcedMode && forcedMode !== 'auto') {
+        if (forcedMode === 'text') {
+            return { type: 'text', prompt: lastUser, assistantText: '', params: {} };
+        }
+        return directPlan(forcedMode === 'audio' ? 'audio' : forcedMode, lastUser);
     }
-    if (forcedMode && forcedMode !== 'auto' && ['image', 'audio', 'video', 'web', 'code'].includes(forcedMode)) {
-        plan.type = forcedMode === 'audio' ? 'audio' : forcedMode;
+
+    const heuristicType = classifyHeuristic(lastUser);
+    if (heuristicType) {
+        return directPlan(heuristicType, lastUser);
     }
-    plan.params = plan.params || {};
-    return plan;
+
+    try {
+        const recent = messages.slice(-8).map(m => `${m.role}: ${String(m.content).slice(0, 500)}`).join('\n');
+        const { text } = await complete({
+            system: PLANNER_SYSTEM,
+            user: `Conversation so far:\n${recent}\n\nLatest request: ${lastUser}`,
+            temperature: 0.2,
+            maxTokens: 450,
+        });
+        const plan = extractJson(text);
+        if (!plan || !plan.type) {
+            return { type: 'text', prompt: lastUser, assistantText: '', params: {} };
+        }
+        plan.params = plan.params || {};
+        return plan;
+    } catch {
+        return { type: 'text', prompt: lastUser, assistantText: '', params: {} };
+    }
 }
 
 export async function runImagePlan(plan) {

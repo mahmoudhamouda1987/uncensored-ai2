@@ -120,6 +120,23 @@ export async function POST(request) {
                 }
                 return NextResponse.json({ ok: true, committed: results, branch });
             }
+            case 'createRepo': {
+                const { name, isPrivate } = params;
+                if (!name || !/^[A-Za-z0-9._-]+$/.test(name)) {
+                    return NextResponse.json({ error: 'Invalid repository name' }, { status: 400 });
+                }
+                const r = await gh('/user/repos', token, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        name,
+                        private: !!isPrivate,
+                        auto_init: true,
+                        description: params.description || 'Created with Uncensored AI Workbench',
+                    }),
+                });
+                if (r.error) return NextResponse.json(r, { status: r.status });
+                return NextResponse.json({ ok: true, fullName: r.data.full_name, url: r.data.html_url, defaultBranch: r.data.default_branch });
+            }
             case 'createPullRequest': {
                 const { owner, repo, head, base, title, body } = params;
                 const r = await gh(`/repos/${owner}/${repo}/pulls`, token, {

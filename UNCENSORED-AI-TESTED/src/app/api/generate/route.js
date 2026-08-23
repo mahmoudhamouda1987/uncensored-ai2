@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { enforceLimits, verifyClient, saveArtifact, isLocalRequest, isRateLimitError, isDailyTokenQuotaError } from '@/lib/security';
-import { buildChatMessages, streamWithServerContinuation } from '@/lib/llm';
+import { buildChatMessages, streamWithServerContinuation, customProviderConfigured } from '@/lib/llm';
 import { planGeneration, executePlan } from '@/lib/orchestrator';
 
 export const maxDuration = 60;
@@ -47,7 +47,7 @@ export async function POST(request) {
         }
 
         if (plan.type === 'text') {
-            const { readable } = await streamWithServerContinuation(buildChatMessages(messages), { temperature: 0.7, maxTokens: 4096 });
+            const { readable } = await streamWithServerContinuation(buildChatMessages(messages, { plain: customProviderConfigured() }), { temperature: 0.7, maxTokens: 4096 });
             const headers = {
                 "Content-Type": "text/plain; charset=utf-8",
                 "X-Content-Type-Options": "nosniff",

@@ -17,13 +17,13 @@ export function getRateLimiter() {
     if (!_ratelimit && getRedis()) {
         _ratelimit = new Ratelimit({
             redis: getRedis(),
-            limiter: Ratelimit.fixedWindow(5, "1 m"),
+            limiter: Ratelimit.fixedWindow(30, "1 m"),
         });
     }
     return _ratelimit;
 }
 
-const DAILY_REQUEST_LIMIT = 200;
+const DAILY_REQUEST_LIMIT = 1000;
 const DAILY_REQUEST_WINDOW = 86400;
 
 export async function checkDailyCap(ip) {

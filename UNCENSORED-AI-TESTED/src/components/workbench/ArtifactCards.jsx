@@ -69,7 +69,7 @@ export function AudioCard({ artifact }) {
     );
 }
 
-export function WebCard({ artifact, onOpenWorkspace }) {
+export function WebCard({ artifact, onOpenWorkspace, onSaveLocal, onSaveGithub }) {
     const consoleHook = `<script>(function(){var send=function(level,args){try{parent.postMessage({__wbConsole:true,level:level,message:Array.from(args).map(function(a){try{return typeof a==='object'?JSON.stringify(a):String(a)}catch(e){return String(a)}}).join(' ')},'*')}catch(e){}};['log','warn','error','info'].forEach(function(k){var o=console[k];console[k]=function(){send(k,arguments);o.apply(console,arguments)}});window.addEventListener('error',function(e){send('error',[e.message+' ('+ (e.filename||'inline')+':'+e.lineno+')'])});})();<\/script>`;
     const html = artifact.html.includes('<head>') ? artifact.html.replace('<head>', '<head>' + consoleHook) : consoleHook + artifact.html;
     const sizeKb = Math.round(new Blob([artifact.html]).size / 1024);
@@ -89,13 +89,14 @@ export function WebCard({ artifact, onOpenWorkspace }) {
                 <button onClick={() => onOpenWorkspace?.(artifact)} className="text-xs px-3 py-1.5 rounded-lg bg-[#1a1a2e] hover:bg-[#2a2a3e] text-gray-300 hover:text-white transition-colors">Open Workspace</button>
                 <button onClick={() => downloadBlob(artifact.html, `${artifact.name.replace(/[^a-z0-9-_ ]/gi, '_')}.html`, 'text/html')} className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600/80 hover:bg-indigo-500 text-white transition-colors">Download HTML</button>
                 {onSaveLocal && <button onClick={() => onSaveLocal(artifact)} className="text-xs px-3 py-1.5 rounded-lg bg-emerald-700/70 hover:bg-emerald-600 text-white transition-colors">Save to Laptop</button>}
+                {onSaveGithub && <button onClick={() => onSaveGithub(artifact)} className="text-xs px-3 py-1.5 rounded-lg bg-[#24292f] hover:bg-[#32383f] text-white transition-colors">Push to GitHub</button>}
                 <button onClick={() => navigator.clipboard.writeText(artifact.html)} className="text-xs px-3 py-1.5 rounded-lg bg-[#1a1a2e] hover:bg-[#2a2a3e] text-gray-300 hover:text-white transition-colors">Copy Source</button>
             </div>
         </div>
     );
 }
 
-export function CodeCard({ artifact, onOpenWorkspace, onSaveLocal }) {
+export function CodeCard({ artifact, onOpenWorkspace, onSaveLocal, onSaveGithub }) {
     const [activeFile, setActiveFile] = useState(0);
     const file = artifact.files[activeFile];
     return (
@@ -110,6 +111,7 @@ export function CodeCard({ artifact, onOpenWorkspace, onSaveLocal }) {
                 <button onClick={() => onOpenWorkspace?.(artifact)} className="text-xs px-3 py-1.5 rounded-lg bg-[#1a1a2e] hover:bg-[#2a2a3e] text-gray-300 hover:text-white transition-colors">Open in IDE</button>
                 <button onClick={() => downloadBlob(file.content, file.name)} className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600/80 hover:bg-indigo-500 text-white transition-colors">Download File</button>
                 {onSaveLocal && <button onClick={() => onSaveLocal(artifact)} className="text-xs px-3 py-1.5 rounded-lg bg-emerald-700/70 hover:bg-emerald-600 text-white transition-colors">Save to Laptop</button>}
+                {onSaveGithub && <button onClick={() => onSaveGithub(artifact)} className="text-xs px-3 py-1.5 rounded-lg bg-[#24292f] hover:bg-[#32383f] text-white transition-colors">Push to GitHub</button>}
                 <button onClick={() => navigator.clipboard.writeText(file.content)} className="text-xs px-3 py-1.5 rounded-lg bg-[#1a1a2e] hover:bg-[#2a2a3e] text-gray-300 hover:text-white transition-colors">Copy</button>
                 <span className="ml-auto text-[11px] text-gray-600">{artifact.files.length} files</span>
             </div>
