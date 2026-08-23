@@ -13,13 +13,13 @@ import {
     getAll, getByIndex, put as dbPut, get as dbGet, remove as dbRemove, estimateUsage, uid,
 } from '../../lib/localdb';
 import { subscribeTasks, getTasks } from '../../lib/tasks';
-import { streamWithAutoContinue } from '../../lib/autocontinue';
 import { writeDocumentSections } from '../../lib/docpipeline';
 import { ImageCard, AudioCard, WebCard, CodeCard, DocumentCard, StoryboardCard } from './ArtifactCards';
 import { VideoStudio } from './VideoStudio';
 import { DocumentEditor } from './DocumentEditor';
 import { CodeWorkspace, WebPreviewWorkspace } from './CodeWorkspace';
 import { Connections } from './Connections';
+import { LocalWorkspace, agentWriteFiles } from './LocalWorkspace';
 
 const MODES = [
     { id: 'auto', label: 'Ask', icon: IoChatbubble },
@@ -50,6 +50,7 @@ export default function Workbench({ needsVerification, isVerified, turnstileToke
     const [showPalette, setShowPalette] = useState(false);
     const [showTasks, setShowTasks] = useState(false);
     const [showHelp, setShowHelp] = useState(false);
+    const [agentInfo, setAgentInfo] = useState(null);
     const [tasks, setTasks] = useState(getTasks());
     const [notifications, setNotifications] = useState([]);
     const [usage, setUsage] = useState(null);
@@ -183,32 +184,65 @@ export default function Workbench({ needsVerification, isVerified, turnstileToke
         const aiMsgId = uid();
         setMessages((prev) => [...prev, { id: aiMsgId, role: 'assistant', content: '', artifacts: [], streaming: true }]);
 
+        let streamedContent = '';
+        let pendingFlush = '';
+        let flushScheduled = false;
+        const flush = () => {
+            flushScheduled = false;
+            if (!pendingFlush) return;
+            setMessages((prev) => prev.map((m) => (m.id === aiMsgId ? { ...m, content: m.content + pendingFlush, streaming: true } : m)));
+            pendingFlush = '';
+        };
+        const scheduleFlush = () => {
+            if (!flushScheduled) {
+                flushScheduled = true;
+                requestAnimationFrame(flush);
+            }
+        };
+
         try {
-            const result = await streamWithAutoContinue({
-                endpoint: '/api/generate',
-                body: {
+            const response = await fetch('/api/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
                     messages: apiMessages,
                     mode,
                     userId: localStorage.getItem('userId') || 'anon',
                     turnstileToken: turnstileToken || undefined,
-                },
-                onToken: (token, json) => {
-                    if (json && json.artifacts !== undefined) {
-                        setMessages((prev) => prev.map((m) => (m.id === aiMsgId ? { ...m, content: json.assistantText || '', artifacts: json.artifacts || [], error: !!json.error, streaming: false } : m)));
-                        return;
-                    }
-                    if (token === '__CONTINUE_ROUND__') return;
-                    setMessages((prev) => prev.map((m) => (m.id === aiMsgId ? { ...m, content: (m.content + token).replace(/\u2402CONTINUE\u2402/g, ''), streaming: true } : m)));
-                },
+                }),
             });
+
+            if (!response.ok) {
+                const errText = await response.text().catch(() => '');
+                throw Object.assign(new Error(errText || `Request failed (${response.status})`), { status: response.status });
+            }
+
+            let jsonResult = null;
+            const contentType = response.headers.get('content-type') || '';
+
+            if (contentType.includes('application/json')) {
+                jsonResult = await response.json();
+            } else {
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    const token = decoder.decode(value, { stream: true });
+                    streamedContent += token;
+                    pendingFlush += token;
+                    scheduleFlush();
+                }
+                flush();
+            }
 
             let finalArtifacts = [];
             let finalContent = '';
-            if (result.json) {
-                finalArtifacts = result.json.artifacts || [];
-                finalContent = result.json.assistantText || '';
+            if (jsonResult) {
+                finalArtifacts = jsonResult.artifacts || [];
+                finalContent = jsonResult.assistantText || '';
             } else {
-                finalContent = result.text;
+                finalContent = streamedContent;
             }
 
             for (const art of finalArtifacts) {
@@ -252,16 +286,24 @@ export default function Workbench({ needsVerification, isVerified, turnstileToke
                 }
             }
         } catch (e) {
-            const friendly = String(e.message || '').includes('too fast')
-                ? "Slow down! You're sending messages too fast."
-                : String(e.message || '').includes('daily limit')
-                    ? "You've hit your daily limit."
+            const msg = String(e.message || '');
+            const friendly = msg.includes('too fast')
+                ? "Rate limit: wait a few seconds and send again."
+                : msg.includes('daily limit')
+                    ? "You've hit the daily limit. Come back tomorrow."
                     : e.status === 403
-                        ? 'Security check failed. Please wait and retry.'
-                        : 'Something went wrong while generating. Please try again.';
-            const errRecord = { id: uid(), role: 'assistant', content: friendly };
-            await saveMessage(convId, errRecord);
-            setMessages((prev) => [...prev, { ...errRecord, type: 'ai' }]);
+                        ? 'Security check failed. Please retry.'
+                        : e.status === 429
+                            ? "We're busy right now. Please try again shortly."
+                            : `Connection issue: ${msg.slice(0, 140)}`;
+            if (streamedContent) {
+                setMessages((prev) => prev.map((m) => (m.id === aiMsgId ? { ...m, streaming: false, content: m.content + `\n\n_(stream interrupted: ${friendly})_` } : m)));
+                await saveMessage(convId, { id: aiMsgId, role: 'assistant', content: streamedContent + `\n\n[interrupted: ${friendly}]`, artifacts: [] });
+            } else {
+                const errRecord = { id: uid(), role: 'assistant', content: friendly };
+                await saveMessage(convId, errRecord);
+                setMessages((prev) => [...prev, { ...errRecord, type: 'ai' }]);
+            }
         } finally {
             setIsResponding(false);
         }
@@ -302,6 +344,7 @@ export default function Workbench({ needsVerification, isVerified, turnstileToke
             { label: 'Documents', view: 'documents', icon: IoDocument },
             { label: 'Images', view: 'images', icon: IoImage },
             { label: 'Library', view: 'library', icon: IoGrid },
+            { label: 'Local Folder', view: 'local', icon: IoFolderOpen },
         ],
         developer: [
             { label: 'Connections', view: 'connections', icon: IoLink },
@@ -499,6 +542,7 @@ export default function Workbench({ needsVerification, isVerified, turnstileToke
                         </ArtifactListView>
                     )}
                     {view === 'connections' && <Connections notify={notify} />}
+    {view === 'local' && <LocalWorkspace notify={notify} onAgentChange={(ok, t) => setAgentInfo({ ok, token: t })} />}
                     {(view === 'code' || view === 'web') && activeArtifactObj && (
                         activeArtifactObj.kind === 'code'
                             ? <CodeWorkspace artifact={activeArtifactObj} />
@@ -690,11 +734,23 @@ export default function Workbench({ needsVerification, isVerified, turnstileToke
 
     function renderArtifactCard(art, compact = false) {
         if (!art) return null;
+        const saveLocal = async (a) => {
+            const files = a.kind === 'web' ? [{ name: `${(a.name || 'app').replace(/[^a-z0-9-_ ]/gi, '_')}.html`, content: a.html }] : a.files || [];
+            if (!agentInfo?.ok) {
+                notify('Connect the Local Agent first (Local Folder in the sidebar).', 'error');
+                return;
+            }
+            try {
+                await agentWriteFiles(agentInfo.token, files, (t, k) => notify(t, k));
+            } catch (e) {
+                notify(`Save failed: ${e.message}`, 'error');
+            }
+        };
         switch (art.kind) {
             case 'image': return <ImageCard key={art.id || Math.random()} artifact={art} />;
             case 'audio': return <AudioCard key={art.id || Math.random()} artifact={art} />;
-            case 'web': return <WebCard key={art.id || Math.random()} artifact={art} onOpenWorkspace={(a) => { setActiveArtifact(a.id); setArtifacts((prev) => prev.some((x) => x.id === a.id) ? prev : [a, ...prev]); setView('web'); }} />;
-            case 'code': return <CodeCard key={art.id || Math.random()} artifact={art} onOpenWorkspace={(a) => { setActiveArtifact(a.id); setArtifacts((prev) => prev.some((x) => x.id === a.id) ? prev : [a, ...prev]); setView('code'); }} />;
+            case 'web': return <WebCard key={art.id || Math.random()} artifact={art} onSaveLocal={saveLocal} onOpenWorkspace={(a) => { setActiveArtifact(a.id); setArtifacts((prev) => prev.some((x) => x.id === a.id) ? prev : [a, ...prev]); setView('web'); }} />;
+            case 'code': return <CodeCard key={art.id || Math.random()} artifact={art} onSaveLocal={saveLocal} onOpenWorkspace={(a) => { setActiveArtifact(a.id); setArtifacts((prev) => prev.some((x) => x.id === a.id) ? prev : [a, ...prev]); setView('code'); }} />;
             case 'document': return <DocumentCard key={art.id || Math.random()} artifact={art} onOpenEditor={(a) => { setActiveArtifact(a.id); setView('documents'); }} />;
             case 'video-storyboard': return <StoryboardCard key={art.id || Math.random()} artifact={art} onOpenStudio={(sb) => setStudioStoryboard(sb)} />;
             default: return compact ? null : null;

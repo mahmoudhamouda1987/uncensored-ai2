@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "agent": "node local-agent/agent.js"
   },
   "dependencies": {
     "@marsidev/react-turnstile": "^1.5.3",

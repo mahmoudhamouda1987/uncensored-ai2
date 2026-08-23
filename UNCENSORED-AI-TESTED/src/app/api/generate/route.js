@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { enforceLimits, verifyClient, saveArtifact, isRateLimitError, isDailyTokenQuotaError } from '@/lib/security';
-import { buildChatMessages, streamChatCompletion } from '@/lib/llm';
+import { enforceLimits, verifyClient, saveArtifact, isLocalRequest, isRateLimitError, isDailyTokenQuotaError } from '@/lib/security';
+import { buildChatMessages, streamWithServerContinuation } from '@/lib/llm';
 import { planGeneration, executePlan } from '@/lib/orchestrator';
 
 export const maxDuration = 60;
@@ -47,7 +47,7 @@ export async function POST(request) {
         }
 
         if (plan.type === 'text') {
-            const { readable } = await streamChatCompletion(buildChatMessages(messages));
+            const { readable } = await streamWithServerContinuation(buildChatMessages(messages), { temperature: 0.7, maxTokens: 4096 });
             const headers = {
                 "Content-Type": "text/plain; charset=utf-8",
                 "X-Content-Type-Options": "nosniff",
@@ -55,7 +55,7 @@ export async function POST(request) {
                 ...limits.headers,
             };
             if (access.newSessionId) {
-                headers["Set-Cookie"] = `cf_verified=${access.newSessionId}; HttpOnly; Path=/; Max-Age=3600${(await import('@/lib/security')).isLocalRequest(request) ? '' : '; Secure'}`;
+                headers["Set-Cookie"] = `cf_verified=${access.newSessionId}; HttpOnly; Path=/; Max-Age=3600${isLocalRequest(request) ? '' : '; Secure'}`;
             }
             return new Response(readable, { status: 200, headers });
         }
@@ -64,12 +64,14 @@ export async function POST(request) {
         try {
             artifact = await executePlan(plan, messages);
         } catch (e) {
-            const friendly = String(e?.message || 'Generation failed');
+            const raw = String(e?.message || 'Generation failed');
             return NextResponse.json({
-                assistantText: `I couldn't complete that generation. ${friendly}`,
+                assistantText: raw.includes('timeout') || raw.includes('aborted')
+                    ? "The generation provider timed out. Please press Regenerate or try again in a moment."
+                    : `Generation failed: ${raw}`,
                 artifacts: [],
                 error: true,
-                retryable: !/not configured|No API keys/.test(friendly),
+                retryable: true,
             }, { status: 200 });
         }
 

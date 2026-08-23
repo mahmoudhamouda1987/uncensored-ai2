@@ -88,13 +88,14 @@ export function WebCard({ artifact, onOpenWorkspace }) {
             <div className="flex gap-2 px-4 py-2.5 border-t border-[#2a2a3e] bg-[#0c0c14]">
                 <button onClick={() => onOpenWorkspace?.(artifact)} className="text-xs px-3 py-1.5 rounded-lg bg-[#1a1a2e] hover:bg-[#2a2a3e] text-gray-300 hover:text-white transition-colors">Open Workspace</button>
                 <button onClick={() => downloadBlob(artifact.html, `${artifact.name.replace(/[^a-z0-9-_ ]/gi, '_')}.html`, 'text/html')} className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600/80 hover:bg-indigo-500 text-white transition-colors">Download HTML</button>
+                {onSaveLocal && <button onClick={() => onSaveLocal(artifact)} className="text-xs px-3 py-1.5 rounded-lg bg-emerald-700/70 hover:bg-emerald-600 text-white transition-colors">Save to Laptop</button>}
                 <button onClick={() => navigator.clipboard.writeText(artifact.html)} className="text-xs px-3 py-1.5 rounded-lg bg-[#1a1a2e] hover:bg-[#2a2a3e] text-gray-300 hover:text-white transition-colors">Copy Source</button>
             </div>
         </div>
     );
 }
 
-export function CodeCard({ artifact, onOpenWorkspace }) {
+export function CodeCard({ artifact, onOpenWorkspace, onSaveLocal }) {
     const [activeFile, setActiveFile] = useState(0);
     const file = artifact.files[activeFile];
     return (
@@ -105,9 +106,10 @@ export function CodeCard({ artifact, onOpenWorkspace }) {
                 ))}
             </div>
             <pre className="p-4 text-xs leading-relaxed text-gray-300 overflow-x-auto max-h-72 font-mono"><code>{file.content}</code></pre>
-            <div className="flex gap-2 px-4 py-2.5 border-t border-[#2a2a3e] bg-[#0c0c14] items-center">
+            <div className="flex gap-2 px-4 py-2.5 border-t border-[#2a2a3e] bg-[#0c0c14] items-center flex-wrap">
                 <button onClick={() => onOpenWorkspace?.(artifact)} className="text-xs px-3 py-1.5 rounded-lg bg-[#1a1a2e] hover:bg-[#2a2a3e] text-gray-300 hover:text-white transition-colors">Open in IDE</button>
                 <button onClick={() => downloadBlob(file.content, file.name)} className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600/80 hover:bg-indigo-500 text-white transition-colors">Download File</button>
+                {onSaveLocal && <button onClick={() => onSaveLocal(artifact)} className="text-xs px-3 py-1.5 rounded-lg bg-emerald-700/70 hover:bg-emerald-600 text-white transition-colors">Save to Laptop</button>}
                 <button onClick={() => navigator.clipboard.writeText(file.content)} className="text-xs px-3 py-1.5 rounded-lg bg-[#1a1a2e] hover:bg-[#2a2a3e] text-gray-300 hover:text-white transition-colors">Copy</button>
                 <span className="ml-auto text-[11px] text-gray-600">{artifact.files.length} files</span>
             </div>

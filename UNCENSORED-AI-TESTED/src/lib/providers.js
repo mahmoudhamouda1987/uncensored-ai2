@@ -32,27 +32,32 @@ function openAiImageConfig() {
 async function pollinationsImage({ prompt, aspect, seed }) {
     const { width, height } = resolveDimensions(aspect);
     const effectiveSeed = typeof seed === 'number' ? seed : Math.floor(Math.random() * 1e9);
-    const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${width}&height=${height}&seed=${effectiveSeed}&nologo=true&model=flux&safe=false`;
-    const res = await fetchWithTimeout(url, { method: 'GET' }, 60000);
-    if (!res.ok) {
-        throw new Error(`Image provider returned ${res.status}`);
+    const models = ['flux', 'turbo'];
+    let lastError = null;
+    for (const model of models) {
+        for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+                const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${width}&height=${height}&seed=${effectiveSeed}&nologo=true&model=${model}`;
+                const res = await fetchWithTimeout(url, { method: 'GET' }, 90000);
+                if (!res.ok) throw new Error(`Image provider returned ${res.status}`);
+                const blob = await res.blob();
+                if (!blob.type.startsWith('image/')) throw new Error('Image provider returned unexpected content');
+                const buffer = Buffer.from(await blob.arrayBuffer());
+                if (buffer.length < 1024) throw new Error('Image provider returned an empty image');
+                return {
+                    url,
+                    dataUrl: `data:${blob.type};base64,${buffer.toString('base64')}`,
+                    provider: `pollinations/${model}`,
+                    width,
+                    height,
+                    seed: effectiveSeed,
+                };
+            } catch (e) {
+                lastError = e;
+            }
+        }
     }
-    const blob = await res.blob();
-    if (!blob.type.startsWith('image/')) {
-        throw new Error('Image provider returned unexpected content');
-    }
-    const buffer = Buffer.from(await blob.arrayBuffer());
-    if (buffer.length < 1024) {
-        throw new Error('Image provider returned an empty image');
-    }
-    return {
-        url,
-        dataUrl: `data:${blob.type};base64,${buffer.toString('base64')}`,
-        provider: 'pollinations/flux',
-        width,
-        height,
-        seed: effectiveSeed,
-    };
+    throw lastError || new Error('Image generation unavailable');
 }
 
 async function openAiImage({ prompt, aspect }) {
@@ -133,13 +138,16 @@ export async function generateSpeech({ text, voice = 'nova' }) {
     const segments = [];
     for (const chunk of chunks) {
         const url = `https://text.pollinations.ai/${encodeURIComponent(chunk)}?model=openai-audio&voice=${safeVoice}`;
-        const res = await fetchWithTimeout(url, { method: 'GET' }, 60000);
-        if (!res.ok) {
-            throw new Error(`Speech provider returned ${res.status}`);
-        }
-        const buffer = Buffer.from(await res.arrayBuffer());
-        if (buffer.length < 512) {
-            throw new Error('Speech provider returned empty audio');
+        let buffer = null;
+        for (let attempt = 0; attempt < 3 && !buffer; attempt++) {
+            try {
+                const res = await fetchWithTimeout(url, { method: 'GET' }, 90000);
+                if (!res.ok) throw new Error(`Speech provider returned ${res.status}`);
+                const candidate = Buffer.from(await res.arrayBuffer());
+                if (candidate.length >= 512) buffer = candidate;
+            } catch (e) {
+                if (attempt === 2) throw new Error('Speech service is busy — please retry in a moment.');
+            }
         }
         segments.push({
             url,

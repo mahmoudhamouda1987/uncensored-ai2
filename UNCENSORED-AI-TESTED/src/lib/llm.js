@@ -105,6 +105,53 @@ export async function complete({ system, user, temperature = 0.7, maxTokens = 20
 
 export const CONTINUATION_SENTINEL = "\u2402CONTINUE\u2402";
 
+const MAX_SERVER_CONTINUATIONS = 6;
+
+export async function streamWithServerContinuation(messages, { temperature = 0.7, maxTokens = 4096 } = {}) {
+    const encoder = new TextEncoder();
+    const readable = new ReadableStream({
+        async start(controller) {
+            try {
+                let conversation = messages;
+                let total = '';
+                for (let round = 0; round <= MAX_SERVER_CONTINUATIONS; round++) {
+                    const { result: apiStream } = await llmCreate({
+                        model: "openai/gpt-oss-120b",
+                        messages: conversation,
+                        temperature,
+                        top_p: 1,
+                        max_tokens: maxTokens,
+                        stream: true,
+                    });
+                    let finishReason = null;
+                    let roundText = '';
+                    for await (const chunk of apiStream) {
+                        const choice = chunk.choices[0];
+                        if (choice?.delta?.content) {
+                            roundText += choice.delta.content;
+                            controller.enqueue(encoder.encode(choice.delta.content));
+                        }
+                        if (choice?.finish_reason) finishReason = choice.finish_reason;
+                    }
+                    total += roundText;
+                    if (finishReason !== 'length' || round === MAX_SERVER_CONTINUATIONS) break;
+                    conversation = [
+                        ...conversation,
+                        { role: 'assistant', content: total.slice(-4000) },
+                        {
+                            role: 'user',
+                            content: `Your response was cut off by the length limit. Continue EXACTLY where you stopped. Do not repeat anything already written, do not add preamble. Resume mid-sentence if needed.`,
+                        },
+                    ];
+                }
+            } finally {
+                controller.close();
+            }
+        }
+    });
+    return { readable };
+}
+
 export async function streamChatCompletion(messages, { temperature = 0.7, maxTokens = 1024 } = {}) {
     const { result: apiStream, keyIndex, provider } = await llmCreate({
         model: "openai/gpt-oss-120b",
