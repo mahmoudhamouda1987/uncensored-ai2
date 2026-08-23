@@ -49,6 +49,7 @@ export default function Workbench({ needsVerification, isVerified, turnstileToke
     const [studioStoryboard, setStudioStoryboard] = useState(null);
     const [showPalette, setShowPalette] = useState(false);
     const [showTasks, setShowTasks] = useState(false);
+    const [showHelp, setShowHelp] = useState(false);
     const [tasks, setTasks] = useState(getTasks());
     const [notifications, setNotifications] = useState([]);
     const [usage, setUsage] = useState(null);
@@ -332,7 +333,7 @@ export default function Workbench({ needsVerification, isVerified, turnstileToke
                     <IoNotifications size={15} />
                     {tasks.some((t) => t.status === 'running') && <span className="absolute top-1 right-1 w-2 h-2 bg-indigo-500 rounded-full animate-pulse" />}
                 </button>
-                <button className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-[#141420] text-gray-400 hover:text-white transition-colors" title="Settings">
+                <button onClick={() => setShowHelp(true)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-[#141420] text-gray-400 hover:text-white transition-colors" title="Help & Shortcuts">
                     <IoSettingsSharp size={15} />
                 </button>
             </header>
@@ -618,6 +619,45 @@ export default function Workbench({ needsVerification, isVerified, turnstileToke
             </AnimatePresence>
 
             {studioStoryboard && <VideoStudio storyboard={studioStoryboard} onClose={() => setStudioStoryboard(null)} />}
+
+            <AnimatePresence>
+                {showHelp && (
+                    <>
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[60] bg-black/60" onClick={() => setShowHelp(false)} />
+                        <div className="fixed inset-0 z-[60] flex items-center justify-center pointer-events-none">
+                            <motion.div
+                                initial={{ opacity: 0, scale: 0.95, y: 16 }}
+                                animate={{ opacity: 1, scale: 1, y: 0 }}
+                                exit={{ opacity: 0, scale: 0.95, y: 16 }}
+                                className="w-full max-w-md bg-[#111118] border border-[#2a2a3e]/70 rounded-2xl shadow-2xl overflow-hidden pointer-events-auto"
+                            >
+                                <div className="flex items-center justify-between px-6 py-4 border-b border-[#2a2a3e]/50">
+                                    <h3 className="text-sm font-semibold text-white">Help &amp; Shortcuts</h3>
+                                    <button onClick={() => setShowHelp(false)} className="text-gray-500 hover:text-white"><IoClose size={16} /></button>
+                                </div>
+                                <div className="px-6 py-4 space-y-4 text-xs text-gray-400">
+                                    <div>
+                                        <p className="text-gray-300 font-medium mb-2">Keyboard</p>
+                                        {[['Ctrl / Cmd + K', 'Command palette'], ['Ctrl / Cmd + J', 'Task Center'], ['Enter', 'Send message']].map(([k, d]) => (
+                                            <div key={k} className="flex justify-between py-1 border-b border-[#1a1a24]">
+                                                <span>{d}</span><kbd className="px-2 rounded bg-[#1a1a2e] text-[10px] text-gray-300">{k}</kbd>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div>
+                                        <p className="text-gray-300 font-medium mb-2">Creation modes</p>
+                                        <p className="leading-relaxed">The planner detects your intent automatically — just describe what you want. The chips above the composer (Image / Audio / Video / Web / Code / Doc) force a specific mode when you already know the target.</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-gray-300 font-medium mb-2">Privacy</p>
+                                        <p className="leading-relaxed">Projects, chats and artifacts are stored locally in this browser (IndexedDB). Generation prompts go to the LLM provider; connection tokens never leave your browser except to their own service via this app's API.</p>
+                                    </div>
+                                </div>
+                            </motion.div>
+                        </div>
+                    </>
+                )}
+            </AnimatePresence>
 
             <style jsx global>{`
                 select option { background: #141420; }

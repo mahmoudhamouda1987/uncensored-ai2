@@ -21,7 +21,7 @@ export default function RootLayout({ children }) {
       <head>
         <link rel="icon" href="/favicon.ico" />
       </head>
-      <body>{children}</body>
+      <body className="bg-[#08080c] text-gray-100 antialiased">{children}</body>
     </html>
   );
 }

@@ -2,6 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
+html {
+  color-scheme: dark;
+}
+
+body {
+  background-color: #08080c;
+  color: #e6ebf2;
+}
+
 pre {
   background-color: #1e1e1e;
   padding: 1rem;
