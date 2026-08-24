@@ -43,8 +43,8 @@ const DOCUMENT_OUTLINE_SYSTEM = `You are a curriculum architect and document pla
 }
 Rules:
 - Cover EVERY requirement the user asked for. If they asked for 28 lessons, output exactly 28 sections.
+- BE CONCISE: titles max 10 words, objectives max 20 words, keyPoints max 4 items of max 6 words each. Never write prose outside the JSON values.
 - Sections must be logically ordered (foundations first).
-- keyPoints list concrete sub-topics so no section is vague.
 - No prose outside JSON.`;
 
 const SECTION_SYSTEM = `You are an expert author writing ONE section of a larger structured document.
@@ -62,7 +62,7 @@ export async function generateDocumentOutline(prompt, sectionCount) {
             system: DOCUMENT_OUTLINE_SYSTEM,
             user: `Plan this document: ${prompt}\nRequired sections: ${sectionCount || 'as many as needed to fully cover the request'}${attempt > 0 ? '\n\nCRITICAL: your previous reply was not valid JSON. Output ONLY the raw JSON object, no prose, no markdown fences.' : ''}`,
             temperature: attempt > 0 ? 0.2 : 0.4,
-            maxTokens: 3500, strongFirst: true
+            maxTokens: 2500, strongFirst: true
         });
         outline = extractJson(text);
     }
@@ -100,7 +100,7 @@ export async function generateDocumentSection({ title, description, sections, in
             `Target length: ~${section.targetWords} words.`,
         ].filter(Boolean).join('\n'),
         temperature: 0.6,
-        maxTokens: 4000, strongFirst: true
+        maxTokens: 3000, strongFirst: true
     });
     const content = text.replace(/\u2402CONTINUE\u2402/g, '').trim();
     if (content.length < 200) {
@@ -241,7 +241,7 @@ export async function runWebPlan(plan) {
         system: WEB_APP_SYSTEM,
         user: `Build this: ${plan.prompt}\nStyle hint: ${plan.params?.style || 'modern dark theme'}`,
         temperature: 0.5,
-        maxTokens: 8000, strongFirst: true
+        maxTokens: 5500, strongFirst: true
     });
     let html = text.trim();
     if (html.startsWith('```')) {
@@ -278,7 +278,7 @@ export async function runCodePlan(plan, historyMessages) {
         .join('\n');
     const { readable } = await streamWithServerContinuation(
         buildCodePrompt(`${context ? `Context:\n${context}\n\n` : ''}${plan.prompt}`),
-        { temperature: 0.2, maxTokens: 6000, strongFirst: true }
+        { temperature: 0.2, maxTokens: 4500, strongFirst: true }
     );
     let full = '';
     const reader = readable.getReader();

@@ -208,8 +208,9 @@ export const CONTINUATION_SENTINEL = "\u2402CONTINUE\u2402";
 
 const MAX_SERVER_CONTINUATIONS = 6;
 
-export async function streamWithServerContinuation(messages, { temperature = 0.7, maxTokens = 1024, strongFirst = false } = {}, precreatedFirstStream = null) {
+export async function streamWithServerContinuation(messages, { temperature = 0.7, maxTokens = 1024, strongFirst = false, timeBudgetMs = 50000 } = {}, precreatedFirstStream = null) {
     const encoder = new TextEncoder();
+    const startedAt = Date.now();
     const readable = new ReadableStream({
         async start(controller) {
             try {
@@ -218,6 +219,7 @@ export async function streamWithServerContinuation(messages, { temperature = 0.7
                 let nudged = false;
                 let usedPrecreated = false;
                 for (let round = 0; round <= MAX_SERVER_CONTINUATIONS; round++) {
+                    if (round > 0 && Date.now() - startedAt > timeBudgetMs) break;
                     let apiStream;
                     if (precreatedFirstStream && !usedPrecreated) {
                         apiStream = precreatedFirstStream;
