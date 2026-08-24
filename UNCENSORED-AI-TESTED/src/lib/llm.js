@@ -39,7 +39,7 @@ export function getProviderConfig(provider) {
         case 'openrouter':
             return {
                 baseURL: 'https://openrouter.ai/api/v1',
-                model: process.env.OPENROUTER_MODEL || 'cognitivecomputations/dolphin3.0-mistral-24b:free',
+                model: process.env.OPENROUTER_MODEL || 'sao10k/l3-lunaris-8b',
                 extraHeaders: { 'HTTP-Referer': 'https://uncensored-ai2.vercel.app', 'X-Title': 'Uncensored AI Workbench' },
             };
         default:
@@ -145,6 +145,11 @@ export async function llmCreate(params) {
                 }
                 if (isRateLimitError(e)) {
                     markCooldown(i, 65000 + Math.floor(Math.random() * 10000));
+                    lastError = e;
+                    continue;
+                }
+                if (e && (e.status === 404 || e.status === 402 || e.status === 400)) {
+                    markCooldown(i, 1800000);
                     lastError = e;
                     continue;
                 }
