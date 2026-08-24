@@ -39,10 +39,11 @@ export function getProviderConfig(provider, opts = {}) {
         case 'openrouter': {
             const codeModel = process.env.OPENROUTER_CODE_MODEL;
             const model = (opts.strongFirst && codeModel) ? codeModel : (process.env.OPENROUTER_MODEL || 'sao10k/l3-lunaris-8b');
+            const appUrl = process.env.APP_URL || 'https://uncensored-ai2.vercel.app';
             return {
                 baseURL: 'https://openrouter.ai/api/v1',
                 model,
-                extraHeaders: { 'HTTP-Referer': 'https://uncensored-ai2.vercel.app', 'X-Title': 'Uncensored AI Workbench' },
+                extraHeaders: { 'HTTP-Referer': appUrl, 'X-Title': 'Uncensored AI Workbench' },
             };
         }
         default:
