@@ -70,9 +70,9 @@ export function getAllProviderKeys() {
         keys.push({ provider: 'custom', key: process.env.CUSTOM_LLM_KEY.trim() });
     }
 
+    for (const k of collectEnvKeys(/^OPENROUTER_API_KEY(?:_\d+)?$/)) keys.push({ provider: 'openrouter', key: k });
     for (const k of collectEnvKeys(/^GROQ_API_KEY(?:_\d+)?$/)) keys.push({ provider: 'groq', key: k });
     for (const k of collectEnvKeys(/^NVIDIA_API_KEY(?:_\d+)?$/)) keys.push({ provider: 'nvidia', key: k });
-    for (const k of collectEnvKeys(/^OPENROUTER_API_KEY(?:_\d+)?$/)) keys.push({ provider: 'openrouter', key: k });
 
     return keys;
 }
