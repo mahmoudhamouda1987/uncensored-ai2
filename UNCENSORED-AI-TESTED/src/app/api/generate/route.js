@@ -50,9 +50,9 @@ export async function POST(request) {
             const chatMessages = buildChatMessages(messages, { plain: customProviderConfigured() || openRouterConfigured() });
             let firstStreamInfo;
             try {
-                firstStreamInfo = await createChatStream(chatMessages, { temperature: 0.7, maxTokens: 1024 });
+                firstStreamInfo = await createChatStream(chatMessages, { temperature: 0.7, maxTokens: 1024, restrictProviders: ['custom', 'openrouter'] });
             } catch (e) {
-                return errorResponse(e) || new NextResponse(`All AI providers are currently unavailable or rate-limited (${String(e?.message || 'error').slice(0, 160)}). Add another free key (GROQ_API_KEY_2) or configure CUSTOM_LLM_URL / CUSTOM_LLM_KEY / CUSTOM_LLM_MODEL in project settings.`, { status: 429 });
+                return errorResponse(e) || new NextResponse(`The uncensored chat pool (OpenRouter/Custom) is temporarily exhausted or cooling down (${String(e?.message || 'error').slice(0, 140)}). It recovers automatically in minutes. Fund an OpenRouter account to raise capacity.`, { status: 429 });
             }
             const { readable } = await streamWithServerContinuation(chatMessages, { temperature: 0.7, maxTokens: 1024 }, firstStreamInfo.stream);
             const headers = {

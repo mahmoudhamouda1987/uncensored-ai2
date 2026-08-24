@@ -94,9 +94,13 @@ function isRateLimitError(e) {
 
 const PROVIDER_RANK = { groq: 0, nvidia: 0, custom: 1, openrouter: 2 };
 
-export async function llmCreate(params, { strongFirst = false } = {}) {
+export async function llmCreate(params, { strongFirst = false, restrictProviders = null } = {}) {
     let keys = getAllProviderKeys();
     if (keys.length === 0) throw new Error('No API keys configured');
+    if (restrictProviders && restrictProviders.length > 0) {
+        const filtered = keys.filter((k) => restrictProviders.includes(k.provider));
+        if (filtered.length > 0) keys = filtered;
+    }
     if (strongFirst) {
         keys = [...keys].sort((a, b) => (PROVIDER_RANK[a.provider] ?? 1) - (PROVIDER_RANK[b.provider] ?? 1));
     }
@@ -279,7 +283,7 @@ export async function createChatStream(messages, opts = {}) {
         top_p: 1,
         max_tokens: opts.maxTokens ?? 1024,
         stream: true,
-    }, { strongFirst: opts.strongFirst ?? false });
+    }, { strongFirst: opts.strongFirst ?? false, restrictProviders: opts.restrictProviders ?? null });
     return { stream: created.result, provider: created.provider, model: created.model };
 }
 
