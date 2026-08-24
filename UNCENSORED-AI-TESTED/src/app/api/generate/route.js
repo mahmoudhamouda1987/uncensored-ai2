@@ -48,17 +48,19 @@ export async function POST(request) {
 
         if (plan.type === 'text') {
             const chatMessages = buildChatMessages(messages, { plain: customProviderConfigured() || openRouterConfigured() });
-            let firstStream;
+            let firstStreamInfo;
             try {
-                firstStream = await createChatStream(chatMessages, { temperature: 0.7, maxTokens: 1024 });
+                firstStreamInfo = await createChatStream(chatMessages, { temperature: 0.7, maxTokens: 1024 });
             } catch (e) {
                 return errorResponse(e) || new NextResponse(`All AI providers are currently unavailable or rate-limited (${String(e?.message || 'error').slice(0, 160)}). Add another free key (GROQ_API_KEY_2) or configure CUSTOM_LLM_URL / CUSTOM_LLM_KEY / CUSTOM_LLM_MODEL in project settings.`, { status: 429 });
             }
-            const { readable } = await streamWithServerContinuation(chatMessages, { temperature: 0.7, maxTokens: 1024 }, firstStream);
+            const { readable } = await streamWithServerContinuation(chatMessages, { temperature: 0.7, maxTokens: 1024 }, firstStreamInfo.stream);
             const headers = {
                 "Content-Type": "text/plain; charset=utf-8",
                 "X-Content-Type-Options": "nosniff",
                 "Cache-Control": "no-cache",
+                "X-AI-Provider": firstStreamInfo.provider,
+                "X-AI-Model": String(firstStreamInfo.model).slice(0, 80),
                 ...limits.headers,
             };
             if (access.newSessionId) {

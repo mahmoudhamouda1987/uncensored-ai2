@@ -139,7 +139,7 @@ export async function llmCreate(params, { strongFirst = false } = {}) {
                 });
                 rotationState.activeIndex = i;
                 delete rotationState.cooldowns[cooldownKeyOf(i)];
-                return { result, keyIndex: i + 1, provider };
+                return { result, keyIndex: i + 1, provider, model: config.model };
             } catch (e) {
                 if (e && (e.status === 401 || e.status === 403)) {
                     coolIdx(i, 3600000, true);
@@ -272,7 +272,7 @@ export async function streamWithServerContinuation(messages, { temperature = 0.7
 }
 
 export async function createChatStream(messages, opts = {}) {
-    const { result } = await llmCreate({
+    const created = await llmCreate({
         model: "openai/gpt-oss-120b",
         messages,
         temperature: opts.temperature ?? 0.7,
@@ -280,7 +280,7 @@ export async function createChatStream(messages, opts = {}) {
         max_tokens: opts.maxTokens ?? 1024,
         stream: true,
     }, { strongFirst: opts.strongFirst ?? false });
-    return result;
+    return { stream: created.result, provider: created.provider, model: created.model };
 }
 
 export async function streamChatCompletion(messages, { temperature = 0.7, maxTokens = 1024, strongFirst = false } = {}) {
