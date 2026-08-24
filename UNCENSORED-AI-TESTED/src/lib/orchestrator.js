@@ -56,15 +56,18 @@ Rules:
 - Deliver the full requested depth within the target word count.`;
 
 export async function generateDocumentOutline(prompt, sectionCount) {
-    const { text } = await complete({
-        system: DOCUMENT_OUTLINE_SYSTEM,
-        user: `Plan this document: ${prompt}\nRequired sections: ${sectionCount || 'as many as needed to fully cover the request'}`,
-        temperature: 0.4,
-        maxTokens: 3000,
-    });
-    const outline = extractJson(text);
+    let outline = null;
+    for (let attempt = 0; attempt < 2 && !outline; attempt++) {
+        const { text } = await complete({
+            system: DOCUMENT_OUTLINE_SYSTEM,
+            user: `Plan this document: ${prompt}\nRequired sections: ${sectionCount || 'as many as needed to fully cover the request'}${attempt > 0 ? '\n\nCRITICAL: your previous reply was not valid JSON. Output ONLY the raw JSON object, no prose, no markdown fences.' : ''}`,
+            temperature: attempt > 0 ? 0.2 : 0.4,
+            maxTokens: 3500, strongFirst: true
+        });
+        outline = extractJson(text);
+    }
     if (!outline || !Array.isArray(outline.sections) || outline.sections.length === 0) {
-        throw new Error('Could not structure this request into a document outline. Try describing it as a guide or course.');
+        throw new Error('The model could not produce a structured outline. Try rephrasing as: "Create a course titled X with N sections covering Y".');
     }
     return {
         title: String(outline.title || 'Document').slice(0, 140),
@@ -97,7 +100,7 @@ export async function generateDocumentSection({ title, description, sections, in
             `Target length: ~${section.targetWords} words.`,
         ].filter(Boolean).join('\n'),
         temperature: 0.6,
-        maxTokens: 4000,
+        maxTokens: 4000, strongFirst: true
     });
     const content = text.replace(/\u2402CONTINUE\u2402/g, '').trim();
     if (content.length < 200) {
@@ -189,7 +192,7 @@ export async function planGeneration(messages, forcedMode) {
             system: PLANNER_SYSTEM,
             user: `Conversation so far:\n${recent}\n\nLatest request: ${lastUser}`,
             temperature: 0.2,
-            maxTokens: 450,
+            maxTokens: 450, strongFirst: true
         });
         const plan = extractJson(text);
         if (!plan || !plan.type) {
@@ -238,7 +241,7 @@ export async function runWebPlan(plan) {
         system: WEB_APP_SYSTEM,
         user: `Build this: ${plan.prompt}\nStyle hint: ${plan.params?.style || 'modern dark theme'}`,
         temperature: 0.5,
-        maxTokens: 8000,
+        maxTokens: 8000, strongFirst: true
     });
     let html = text.trim();
     if (html.startsWith('```')) {
@@ -275,7 +278,7 @@ export async function runCodePlan(plan, historyMessages) {
         .join('\n');
     const { readable } = await streamChatCompletion(buildCodePrompt(`${context ? `Context:\n${context}\n\n` : ''}${plan.prompt}`), {
         temperature: 0.2,
-        maxTokens: 6000,
+        maxTokens: 6000, strongFirst: true
     });
     let full = '';
     const reader = readable.getReader();
@@ -293,13 +296,16 @@ export async function runCodePlan(plan, historyMessages) {
 }
 
 export async function runVideoPlan(plan) {
-    const { text } = await complete({
-        system: STORYBOARD_SYSTEM,
-        user: `Create a storyboard for: ${plan.prompt}\nGlobal style hint: ${plan.params?.style || 'cinematic'}\nScenes: ${plan.params?.sceneCount || 4}, seconds per scene: ${plan.params?.secondsPerScene || 4}`,
-        temperature: 0.6,
-        maxTokens: 1500,
-    });
-    const board = extractJson(text);
+    let board = null;
+    for (let attempt = 0; attempt < 2 && !board; attempt++) {
+        const { text } = await complete({
+            system: STORYBOARD_SYSTEM,
+            user: `Create a storyboard for: ${plan.prompt}\nGlobal style hint: ${plan.params?.style || 'cinematic'}\nScenes: ${plan.params?.sceneCount || 4}, seconds per scene: ${plan.params?.secondsPerScene || 4}${attempt > 0 ? '\n\nCRITICAL: output ONLY the raw JSON object, no prose, no markdown fences.' : ''}`,
+            temperature: attempt > 0 ? 0.3 : 0.6,
+            maxTokens: 1500, strongFirst: true
+        });
+        board = extractJson(text);
+    }
     if (!board || !Array.isArray(board.scenes) || board.scenes.length === 0) {
         throw new Error('Could not build a storyboard for this idea. Try describing the video differently.');
     }

@@ -84,17 +84,6 @@ const rotationState = globalThis.__groqRotationState || {
 };
 globalThis.__groqRotationState = rotationState;
 
-function keyId(i) { return `${i}:${getAllProviderKeys()[i]?.key?.slice(-6)}`; }
-
-function isCooling(i) {
-    const until = rotationState.cooldowns[keyId(i)] || 0;
-    return Date.now() < until;
-}
-
-function markCooldown(i, ms, permanent = false) {
-    rotationState.cooldowns[keyId(i)] = permanent ? Number.MAX_SAFE_INTEGER : Date.now() + ms;
-}
-
 function isRateLimitError(e) {
     return e?.status === 429
         || e?.error?.code === 'rate_limit_exceeded'
@@ -103,9 +92,14 @@ function isRateLimitError(e) {
         || e?.message?.toLowerCase().includes('rate_limit');
 }
 
-export async function llmCreate(params) {
-    const keys = getAllProviderKeys();
+const PROVIDER_RANK = { groq: 0, nvidia: 0, custom: 1, openrouter: 2 };
+
+export async function llmCreate(params, { strongFirst = false } = {}) {
+    let keys = getAllProviderKeys();
     if (keys.length === 0) throw new Error('No API keys configured');
+    if (strongFirst) {
+        keys = [...keys].sort((a, b) => (PROVIDER_RANK[a.provider] ?? 1) - (PROVIDER_RANK[b.provider] ?? 1));
+    }
 
     const keySignature = keys.map(k => k.key).join('|');
     if (rotationState.keySignature !== keySignature) {
@@ -113,12 +107,21 @@ export async function llmCreate(params) {
         rotationState.activeIndex = 0;
     }
 
+    const cooldownKeyOf = (idx) => `${keys[idx].provider}:${keys[idx].key.slice(-6)}`;
+    const isCoolingIdx = (idx) => {
+        const until = rotationState.cooldowns[cooldownKeyOf(idx)] || 0;
+        return Date.now() < until;
+    };
+    const coolIdx = (idx, ms, permanent = false) => {
+        rotationState.cooldowns[cooldownKeyOf(idx)] = permanent ? Number.MAX_SAFE_INTEGER : Date.now() + ms;
+    };
+
     let lastError = null;
     let triedAny = false;
     for (let pass = 0; pass < 2; pass++) {
         for (let offset = 0; offset < keys.length; offset += 1) {
             const i = (rotationState.activeIndex + offset) % keys.length;
-            if (pass === 0 && isCooling(i)) continue;
+            if (pass === 0 && isCoolingIdx(i)) continue;
             const { provider, key } = keys[i];
             const config = getProviderConfig(provider);
             if (!config || !config.baseURL) continue;
@@ -135,26 +138,26 @@ export async function llmCreate(params) {
                     model: config.model,
                 });
                 rotationState.activeIndex = i;
-                delete rotationState.cooldowns[keyId(i)];
+                delete rotationState.cooldowns[cooldownKeyOf(i)];
                 return { result, keyIndex: i + 1, provider };
             } catch (e) {
                 if (e && (e.status === 401 || e.status === 403)) {
-                    markCooldown(i, 3600000, true);
+                    coolIdx(i, 3600000, true);
                     lastError = e;
                     continue;
                 }
                 if (isRateLimitError(e)) {
-                    markCooldown(i, 65000 + Math.floor(Math.random() * 10000));
+                    coolIdx(i, 65000 + Math.floor(Math.random() * 10000));
                     lastError = e;
                     continue;
                 }
                 if (e && (e.status === 404 || e.status === 402 || e.status === 400)) {
-                    markCooldown(i, 1800000);
+                    coolIdx(i, 1800000);
                     lastError = e;
                     continue;
                 }
                 if (e && e.status >= 500) {
-                    markCooldown(i, 20000);
+                    coolIdx(i, 20000);
                     lastError = e;
                     continue;
                 }
@@ -177,7 +180,7 @@ async function collectStream(stream) {
     return text.trim();
 }
 
-export async function complete({ system, user, temperature = 0.7, maxTokens = 2048 }) {
+export async function complete({ system, user, temperature = 0.7, maxTokens = 2048, strongFirst = false }) {
     const { result, provider } = await llmCreate({
         messages: [
             ...(system ? [{ role: "system", content: system }] : []),
@@ -187,7 +190,7 @@ export async function complete({ system, user, temperature = 0.7, maxTokens = 20
         top_p: 1,
         max_tokens: maxTokens,
         stream: true,
-    });
+    }, { strongFirst });
     const text = await collectStream(result);
     return { text, provider };
 }
@@ -276,11 +279,11 @@ export async function createChatStream(messages, opts = {}) {
         top_p: 1,
         max_tokens: opts.maxTokens ?? 1024,
         stream: true,
-    });
+    }, { strongFirst: opts.strongFirst ?? false });
     return result;
 }
 
-export async function streamChatCompletion(messages, { temperature = 0.7, maxTokens = 1024 } = {}) {
+export async function streamChatCompletion(messages, { temperature = 0.7, maxTokens = 1024, strongFirst = false } = {}) {
     const { result: apiStream, keyIndex, provider } = await llmCreate({
         model: "openai/gpt-oss-120b",
         messages,
@@ -288,7 +291,7 @@ export async function streamChatCompletion(messages, { temperature = 0.7, maxTok
         top_p: 1,
         max_tokens: maxTokens,
         stream: true,
-    });
+    }, { strongFirst });
 
     const encoder = new TextEncoder();
     const readable = new ReadableStream({
