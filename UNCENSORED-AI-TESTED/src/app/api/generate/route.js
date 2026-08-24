@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { enforceLimits, verifyClient, saveArtifact, isLocalRequest, isRateLimitError, isDailyTokenQuotaError } from '@/lib/security';
+import { enforceLimits, verifyClient, saveArtifact, isLocalRequest, isRateLimitError, isDailyTokenQuotaError, checkAccessKey } from '@/lib/security';
 import { buildChatMessages, streamWithServerContinuation, createChatStream, customProviderConfigured, openRouterConfigured } from '@/lib/llm';
 import { planGeneration, executePlan } from '@/lib/orchestrator';
 
@@ -28,6 +28,11 @@ export async function POST(request) {
         const totalChars = messages.reduce((sum, m) => sum + (m.content?.length || 0), 0);
         if (totalChars > 12000) {
             return new NextResponse("Your conversation is getting long! Try starting a new chat to keep things running smoothly.", { status: 400 });
+        }
+
+        const gate = checkAccessKey(request);
+        if (!gate.ok) {
+            return new NextResponse(gate.message, { status: 401 });
         }
 
         const access = await verifyClient(request, body.turnstileToken);

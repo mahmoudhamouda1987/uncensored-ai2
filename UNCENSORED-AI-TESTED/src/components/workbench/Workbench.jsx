@@ -51,6 +51,9 @@ export default function Workbench({ needsVerification, isVerified, turnstileToke
     const [showTasks, setShowTasks] = useState(false);
     const [showHelp, setShowHelp] = useState(false);
     const [agentInfo, setAgentInfo] = useState(null);
+    const [accessKey, setAccessKey] = useState('');
+    const [showKeyPrompt, setShowKeyPrompt] = useState(false);
+    const [keyDraft, setKeyDraft] = useState('');
     const [tasks, setTasks] = useState(getTasks());
     const [notifications, setNotifications] = useState([]);
     const [usage, setUsage] = useState(null);
@@ -59,6 +62,12 @@ export default function Workbench({ needsVerification, isVerified, turnstileToke
     const fileInputRef = useRef(null);
 
     useEffect(() => subscribeTasks(setTasks), []);
+
+    useEffect(() => {
+        if (typeof localStorage !== 'undefined') {
+            setAccessKey(localStorage.getItem('wb_access_key') || '');
+        }
+    }, []);
 
     useEffect(() => {
         (async () => {
@@ -203,7 +212,7 @@ export default function Workbench({ needsVerification, isVerified, turnstileToke
         try {
             const response = await fetch('/api/generate', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'x-access-key': accessKey },
                 body: JSON.stringify({
                     messages: apiMessages,
                     mode,
@@ -287,6 +296,13 @@ export default function Workbench({ needsVerification, isVerified, turnstileToke
             }
         } catch (e) {
             const msg = String(e.message || '');
+            if (e.status === 401) {
+                setShowKeyPrompt(true);
+                const denied = { id: uid(), role: 'assistant', content: 'This workspace is locked. Enter your access key to continue.' };
+                setMessages((prev) => [...prev, { ...denied, type: 'ai' }]);
+                setIsResponding(false);
+                return;
+            }
             const friendly = msg.includes('too fast')
                 ? "Rate limit: wait a few seconds and send again."
                 : msg.includes('daily limit')
@@ -696,6 +712,37 @@ export default function Workbench({ needsVerification, isVerified, turnstileToke
                                         <p className="text-gray-300 font-medium mb-2">Privacy</p>
                                         <p className="leading-relaxed">Projects, chats and artifacts are stored locally in this browser (IndexedDB). Generation prompts go to the LLM provider; connection tokens never leave your browser except to their own service via this app's API.</p>
                                     </div>
+                                </div>
+                            </motion.div>
+                        </div>
+                    </>
+                )}
+            </AnimatePresence>
+
+            <AnimatePresence>
+                {showKeyPrompt && (
+                    <>
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[75] bg-black/70" />
+                        <div className="fixed inset-0 z-[75] flex items-center justify-center pointer-events-none">
+                            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+                                className="pointer-events-auto w-full max-w-sm bg-[#111118] border border-[#2a2a3e]/70 rounded-2xl shadow-2xl overflow-hidden">
+                                <div className="px-6 py-5 space-y-4">
+                                    <h3 className="text-base font-semibold text-white">Workspace locked</h3>
+                                    <p className="text-xs text-gray-400 leading-relaxed">Enter your access key once. It stays in this browser.</p>
+                                    <input
+                                        type="password"
+                                        value={keyDraft}
+                                        onChange={(e) => setKeyDraft(e.target.value)}
+                                        onKeyDown={(e) => { if (e.key === 'Enter' && keyDraft.trim()) { localStorage.setItem('wb_access_key', keyDraft.trim()); setAccessKey(keyDraft.trim()); setShowKeyPrompt(false); setKeyDraft(''); } }}
+                                        placeholder="Access key"
+                                        autoFocus
+                                        className="w-full px-3 py-2.5 rounded-lg bg-[#0c0c14] border border-[#2a2a3e] text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-indigo-500"
+                                    />
+                                    <button
+                                        onClick={() => { if (keyDraft.trim()) { localStorage.setItem('wb_access_key', keyDraft.trim()); setAccessKey(keyDraft.trim()); setShowKeyPrompt(false); setKeyDraft(''); } }}
+                                        disabled={!keyDraft.trim()}
+                                        className="w-full py-2.5 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-40 text-white text-sm font-medium transition-all"
+                                    >Unlock</button>
                                 </div>
                             </motion.div>
                         </div>

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { verifyClient, enforceLimits } from '@/lib/security';
+import { verifyClient, enforceLimits, checkAccessKey } from '@/lib/security';
 import { complete } from '@/lib/llm';
 import { generateDocumentSection } from '@/lib/orchestrator';
 
@@ -8,6 +8,9 @@ export const maxDuration = 60;
 export async function POST(request) {
     try {
         const body = await request.json();
+        const gate = checkAccessKey(request);
+        if (!gate.ok) return new NextResponse(gate.message, { status: 401 });
+
         const access = await verifyClient(request, body.turnstileToken);
         if (!access.ok) return new NextResponse(access.message, { status: access.status });
         const limits = await enforceLimits(request);

@@ -24,7 +24,7 @@ export async function writeDocumentSections(docArtifact, { notify } = {}) {
             try {
                 const res = await fetch('/api/document/section', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'x-access-key': (typeof localStorage !== 'undefined' ? localStorage.getItem('wb_access_key') || '' : '') },
                     body: JSON.stringify({
                         title: docArtifact.title,
                         description: docArtifact.description,

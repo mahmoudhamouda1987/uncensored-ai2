@@ -156,6 +156,14 @@ export async function verifyClient(request, turnstileToken) {
     return { ok: true, newSessionId };
 }
 
+export function checkAccessKey(request) {
+    const required = process.env.ACCESS_KEY;
+    if (!required) return { ok: true };
+    const provided = request.headers.get('x-access-key') || '';
+    if (provided && provided === required) return { ok: true };
+    return { ok: false, status: 401, message: 'Access key required.' };
+}
+
 const ARTIFACT_TTL_SECONDS = 7 * 24 * 3600;
 
 export async function saveArtifact(userId, artifact) {
