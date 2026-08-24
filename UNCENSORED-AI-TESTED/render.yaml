@@ -1,0 +1,44 @@
+services:
+  - type: web
+    name: uncensored-ai2
+    runtime: node
+    plan: free
+    region: frankfurt
+    rootDir: UNCENSORED-AI-TESTED
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/capabilities
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_API_KEY_2
+        sync: false
+      - key: GROQ_API_KEY_3
+        sync: false
+      - key: GROQ_API_KEY_4
+        sync: false
+      - key: GROQ_API_KEY_5
+        sync: false
+      - key: NVIDIA_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY_2
+        sync: false
+      - key: OPENROUTER_API_KEY_3
+        sync: false
+      - key: OPENROUTER_API_KEY_4
+        sync: false
+      - key: OPENROUTER_API_KEY_5
+        sync: false
+      - key: OPENROUTER_CODE_MODEL
+        value: poolside/laguna-s-2.1:free
+      - key: STRUCTURAL_UNCENSORED_FIRST
+        value: "1"
+      - key: ACCESS_KEY
+        sync: false
+      - key: APP_URL
+        sync: false
