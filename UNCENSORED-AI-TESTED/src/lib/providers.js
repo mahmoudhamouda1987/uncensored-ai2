@@ -1,3 +1,5 @@
+import { getProviderPoolSummary } from './llm';
+
 async function fetchWithTimeout(url, options = {}, timeoutMs = 45000) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -159,13 +161,16 @@ export async function generateSpeech({ text, voice = 'nova' }) {
 }
 
 export function getCapabilities() {
-    const llmKeys = (process.env.GROQ_API_KEY || process.env.NVIDIA_API_KEY)
-        ? true
-        : Object.keys(process.env).some(k => /^(GROQ|NVIDIA)_API_KEY_\d+$/.test(k));
+    let pool = [];
+    try {
+        pool = getProviderPoolSummary();
+    } catch { }
+    const llmKeys = pool.length > 0;
     return {
         text: {
             available: llmKeys,
-            requires: llmKeys ? [] : ['GROQ_API_KEY or NVIDIA_API_KEY'],
+            providers: pool,
+            requires: llmKeys ? [] : ['GROQ_API_KEY / NVIDIA_API_KEY / OPENROUTER_API_KEY (any one or more)'],
         },
         image: {
             available: true,

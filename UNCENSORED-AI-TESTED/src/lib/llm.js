@@ -1,22 +1,66 @@
 import OpenAI from 'openai';
 
-export const PROVIDERS = {
-    groq: {
-        baseURL: 'https://api.groq.com/openai/v1',
-        model: 'openai/gpt-oss-120b',
-    },
-    nvidia: {
-        baseURL: 'https://integrate.api.nvidia.com/v1',
-        model: 'openai/gpt-oss-120b',
-    },
-    custom: {
-        baseURL: process.env.CUSTOM_LLM_URL || '',
-        model: process.env.CUSTOM_LLM_MODEL || 'custom',
-    },
-};
+const PLACEHOLDER_HINTS = ['your-key-here', 'sk-or-v1-your', 'changeme'];
+
+function isUsableKey(value) {
+    if (!value) return false;
+    const v = String(value).trim();
+    if (!v) return false;
+    return !PLACEHOLDER_HINTS.some((h) => v.toLowerCase().includes(h));
+}
+
+function collectEnvKeys(regex) {
+    return Object.entries(process.env)
+        .filter(([name, value]) => regex.test(name) && isUsableKey(value))
+        .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
+        .map(([, value]) => value.trim());
+}
+
+export function getProviderConfig(provider) {
+    switch (provider) {
+        case 'custom':
+            return {
+                baseURL: process.env.CUSTOM_LLM_URL || '',
+                model: process.env.CUSTOM_LLM_MODEL || 'custom',
+                extraHeaders: {},
+            };
+        case 'groq':
+            return {
+                baseURL: 'https://api.groq.com/openai/v1',
+                model: process.env.GROQ_MODEL || 'openai/gpt-oss-120b',
+                extraHeaders: {},
+            };
+        case 'nvidia':
+            return {
+                baseURL: 'https://integrate.api.nvidia.com/v1',
+                model: process.env.NVIDIA_MODEL || 'openai/gpt-oss-120b',
+                extraHeaders: {},
+            };
+        case 'openrouter':
+            return {
+                baseURL: 'https://openrouter.ai/api/v1',
+                model: process.env.OPENROUTER_MODEL || 'cognitivecomputations/dolphin3.0-mistral-24b:free',
+                extraHeaders: { 'HTTP-Referer': 'https://uncensored-ai2.vercel.app', 'X-Title': 'Uncensored AI Workbench' },
+            };
+        default:
+            return null;
+    }
+}
 
 export function customProviderConfigured() {
-    return !!(process.env.CUSTOM_LLM_URL && process.env.CUSTOM_LLM_KEY);
+    return !!(isUsableKey(process.env.CUSTOM_LLM_KEY) && process.env.CUSTOM_LLM_URL);
+}
+
+export function openRouterConfigured() {
+    return collectEnvKeys(/^OPENROUTER_API_KEY(?:_\d+)?$/).length > 0;
+}
+
+export function getProviderPoolSummary() {
+    const keys = getAllProviderKeys();
+    const byProvider = {};
+    for (const k of keys) byProvider[k.provider] = (byProvider[k.provider] || 0) + 1;
+    const order = ['custom', 'groq', 'nvidia', 'openrouter'];
+    return order.filter((p) => byProvider[p]).map((p) => `${p}×${byProvider[p]}`);
 }
 
 export function getAllProviderKeys() {
@@ -26,19 +70,9 @@ export function getAllProviderKeys() {
         keys.push({ provider: 'custom', key: process.env.CUSTOM_LLM_KEY.trim() });
     }
 
-    Object.entries(process.env)
-        .filter(([name, value]) => /^GROQ_API_KEY(?:_\d+)?$/.test(name) && value)
-        .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
-        .forEach(([, value]) => {
-            keys.push({ provider: 'groq', key: value.trim() });
-        });
-
-    Object.entries(process.env)
-        .filter(([name, value]) => /^NVIDIA_API_KEY(?:_\d+)?$/.test(name) && value && !value.includes('your-key-here'))
-        .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
-        .forEach(([, value]) => {
-            keys.push({ provider: 'nvidia', key: value.trim() });
-        });
+    for (const k of collectEnvKeys(/^GROQ_API_KEY(?:_\d+)?$/)) keys.push({ provider: 'groq', key: k });
+    for (const k of collectEnvKeys(/^NVIDIA_API_KEY(?:_\d+)?$/)) keys.push({ provider: 'nvidia', key: k });
+    for (const k of collectEnvKeys(/^OPENROUTER_API_KEY(?:_\d+)?$/)) keys.push({ provider: 'openrouter', key: k });
 
     return keys;
 }
@@ -80,20 +114,28 @@ export async function llmCreate(params) {
     }
 
     let lastError = null;
+    let triedAny = false;
     for (let pass = 0; pass < 2; pass++) {
         for (let offset = 0; offset < keys.length; offset += 1) {
             const i = (rotationState.activeIndex + offset) % keys.length;
             if (pass === 0 && isCooling(i)) continue;
             const { provider, key } = keys[i];
-            const config = PROVIDERS[provider];
+            const config = getProviderConfig(provider);
             if (!config || !config.baseURL) continue;
-            const client = new OpenAI({ apiKey: key, baseURL: config.baseURL, maxRetries: 0 });
+            triedAny = true;
+            const client = new OpenAI({
+                apiKey: key,
+                baseURL: config.baseURL,
+                maxRetries: 0,
+                defaultHeaders: config.extraHeaders || {},
+            });
             try {
                 const result = await client.chat.completions.create({
                     ...params,
                     model: config.model,
                 });
                 rotationState.activeIndex = i;
+                delete rotationState.cooldowns[keyId(i)];
                 return { result, keyIndex: i + 1, provider };
             } catch (e) {
                 if (e && (e.status === 401 || e.status === 403)) {
@@ -102,7 +144,12 @@ export async function llmCreate(params) {
                     continue;
                 }
                 if (isRateLimitError(e)) {
-                    markCooldown(i, 65000);
+                    markCooldown(i, 65000 + Math.floor(Math.random() * 10000));
+                    lastError = e;
+                    continue;
+                }
+                if (e && e.status >= 500) {
+                    markCooldown(i, 20000);
                     lastError = e;
                     continue;
                 }
@@ -110,7 +157,11 @@ export async function llmCreate(params) {
             }
         }
     }
-    throw lastError || new Error('All AI providers are currently rate-limited or unavailable. Add more keys (GROQ_API_KEY_2, NVIDIA_API_KEY_2, ...) in Vercel settings, or configure CUSTOM_LLM_URL + CUSTOM_LLM_KEY + CUSTOM_LLM_MODEL.');
+    throw lastError || new Error(
+        triedAny
+            ? 'All AI providers are rate-limited or unavailable right now. Add more free keys in Vercel settings: GROQ_API_KEY, GROQ_API_KEY_2, NVIDIA_API_KEY, OPENROUTER_API_KEY (they rotate automatically).'
+            : 'No API keys configured. Add GROQ_API_KEY / NVIDIA_API_KEY / OPENROUTER_API_KEY in Vercel settings.'
+    );
 }
 
 async function collectStream(stream) {
