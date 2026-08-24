@@ -1,4 +1,4 @@
-import { complete, buildChatMessages, streamChatCompletion, buildCodePrompt } from './llm';
+import { complete, buildChatMessages, streamWithServerContinuation, buildCodePrompt } from './llm';
 import { generateImage, generateSpeech } from './providers';
 
 const PLANNER_SYSTEM = `You are the planning core of a multimodal AI creation platform.
@@ -276,10 +276,10 @@ export async function runCodePlan(plan, historyMessages) {
         .slice(-4)
         .map(m => `${m.role}: ${String(m.content).slice(0, 300)}`)
         .join('\n');
-    const { readable } = await streamChatCompletion(buildCodePrompt(`${context ? `Context:\n${context}\n\n` : ''}${plan.prompt}`), {
-        temperature: 0.2,
-        maxTokens: 6000, strongFirst: true
-    });
+    const { readable } = await streamWithServerContinuation(
+        buildCodePrompt(`${context ? `Context:\n${context}\n\n` : ''}${plan.prompt}`),
+        { temperature: 0.2, maxTokens: 6000, strongFirst: true }
+    );
     let full = '';
     const reader = readable.getReader();
     const decoder = new TextDecoder();

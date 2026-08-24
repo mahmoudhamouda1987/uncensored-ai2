@@ -16,7 +16,7 @@ function collectEnvKeys(regex) {
         .map(([, value]) => value.trim());
 }
 
-export function getProviderConfig(provider) {
+export function getProviderConfig(provider, opts = {}) {
     switch (provider) {
         case 'custom':
             return {
@@ -36,12 +36,15 @@ export function getProviderConfig(provider) {
                 model: process.env.NVIDIA_MODEL || 'openai/gpt-oss-120b',
                 extraHeaders: {},
             };
-        case 'openrouter':
+        case 'openrouter': {
+            const codeModel = process.env.OPENROUTER_CODE_MODEL;
+            const model = (opts.strongFirst && codeModel) ? codeModel : (process.env.OPENROUTER_MODEL || 'sao10k/l3-lunaris-8b');
             return {
                 baseURL: 'https://openrouter.ai/api/v1',
-                model: process.env.OPENROUTER_MODEL || 'sao10k/l3-lunaris-8b',
+                model,
                 extraHeaders: { 'HTTP-Referer': 'https://uncensored-ai2.vercel.app', 'X-Title': 'Uncensored AI Workbench' },
             };
+        }
         default:
             return null;
     }
@@ -127,7 +130,7 @@ export async function llmCreate(params, { strongFirst = false, restrictProviders
             const i = (rotationState.activeIndex + offset) % keys.length;
             if (pass === 0 && isCoolingIdx(i)) continue;
             const { provider, key } = keys[i];
-            const config = getProviderConfig(provider);
+            const config = getProviderConfig(provider, { strongFirst });
             if (!config || !config.baseURL) continue;
             triedAny = true;
             const client = new OpenAI({
@@ -203,7 +206,7 @@ export const CONTINUATION_SENTINEL = "\u2402CONTINUE\u2402";
 
 const MAX_SERVER_CONTINUATIONS = 6;
 
-export async function streamWithServerContinuation(messages, { temperature = 0.7, maxTokens = 1024 } = {}, precreatedFirstStream = null) {
+export async function streamWithServerContinuation(messages, { temperature = 0.7, maxTokens = 1024, strongFirst = false } = {}, precreatedFirstStream = null) {
     const encoder = new TextEncoder();
     const readable = new ReadableStream({
         async start(controller) {
@@ -225,7 +228,7 @@ export async function streamWithServerContinuation(messages, { temperature = 0.7
                             top_p: 1,
                             max_tokens: maxTokens,
                             stream: true,
-                        });
+                        }, { strongFirst });
                         apiStream = created.result;
                     }
                     let finishReason = null;
