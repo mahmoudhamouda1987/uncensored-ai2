@@ -95,8 +95,6 @@ function isRateLimitError(e) {
         || e?.message?.toLowerCase().includes('rate_limit');
 }
 
-const PROVIDER_RANK = { groq: 0, nvidia: 0, custom: 1, openrouter: 2 };
-
 export async function llmCreate(params, { strongFirst = false, restrictProviders = null } = {}) {
     let keys = getAllProviderKeys();
     if (keys.length === 0) throw new Error('No API keys configured');
@@ -105,7 +103,11 @@ export async function llmCreate(params, { strongFirst = false, restrictProviders
         if (filtered.length > 0) keys = filtered;
     }
     if (strongFirst) {
-        keys = [...keys].sort((a, b) => (PROVIDER_RANK[a.provider] ?? 1) - (PROVIDER_RANK[b.provider] ?? 1));
+        const uncensoredStructural = process.env.STRUCTURAL_UNCENSORED_FIRST === '1';
+        const rank = uncensoredStructural
+            ? { custom: 0, openrouter: 0, groq: 1, nvidia: 1 }
+            : { groq: 0, nvidia: 0, custom: 1, openrouter: 2 };
+        keys = [...keys].sort((a, b) => (rank[a.provider] ?? 1) - (rank[b.provider] ?? 1));
     }
 
     const keySignature = keys.map(k => k.key).join('|');
